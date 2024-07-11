@@ -1,5 +1,3 @@
-// server/server.js
-
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -30,6 +28,8 @@ db.once('open', () => {
 const quizRoomSchema = new mongoose.Schema({
   quizId: { type: String, required: true, unique: true },
   participants: [{ id: String, name: String }],
+  question: { type: String, default: '2 + 2 = ?' },
+  options: { type: [String], default: ['3', '4', '5', '6'] },
 });
 const QuizRoom = mongoose.model('QuizRoom', quizRoomSchema);
 
@@ -60,7 +60,8 @@ io.on('connection', (socket) => {
       await newRoom.save();
       socket.join(quizId);
       console.log(`Quiz created with ID: ${quizId}`);
-      callback({ success: true, message: 'Quiz room created successfully' });
+      callback({ success: true, message: 'Quiz room created successfully', question: newRoom.question, options: newRoom.options });
+      io.to(quizId).emit('new_question', { question: newRoom.question, options: newRoom.options });
     } catch (err) {
       console.error(err);
       callback({ success: false, message: 'Failed to create quiz room' });
@@ -79,7 +80,7 @@ io.on('connection', (socket) => {
       room.participants.push({ id: socket.id, name: userName });
       await room.save();
       io.to(quizId).emit('new_participant', room.participants);
-      callback({ success: true, message: 'Joined quiz room successfully' });
+      callback({ success: true, message: 'Joined quiz room successfully', question: room.question, options: room.options });
     } catch (err) {
       console.error(err);
       callback({ success: false, message: 'Failed to join quiz room' });
@@ -89,7 +90,6 @@ io.on('connection', (socket) => {
   // Kết thúc phòng quiz
   socket.on('end_quiz', async (quizId, callback) => {
     try {
-      await QuizRoom.deleteOne({ quizId });
       console.log(`Quiz ended with ID: ${quizId}`);
       io.to(quizId).emit('quiz_ended');
       callback({ success: true, message: 'Quiz room ended successfully' });

@@ -1,5 +1,3 @@
-// client/src/App.tsx
-
 import React, { useState, useEffect } from 'react';
 import io from 'socket.io-client';
 
@@ -17,6 +15,11 @@ function App() {
   const [userName, setUserName] = useState('');
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [isQuizCreated, setIsQuizCreated] = useState(false);
+  const [isJoined, setIsJoined] = useState(false);
+  const [question, setQuestion] = useState('');
+  const [options, setOptions] = useState<string[]>([]);
+  const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  const [isSubmitted, setIsSubmitted] = useState(false);
 
   useEffect(() => {
     // Lắng nghe sự kiện new_participant từ server
@@ -24,11 +27,24 @@ function App() {
       setParticipants(participants);
     });
 
+    // Lắng nghe sự kiện new_question từ server
+    socket.on('new_question', ({ question, options }) => {
+      setQuestion(question);
+      setOptions(options);
+      setIsSubmitted(false); // Reset trạng thái khi có câu hỏi mới
+      setSelectedOption(null); // Reset lựa chọn khi có câu hỏi mới
+    });
+
     // Lắng nghe sự kiện quiz_ended từ server
     socket.on('quiz_ended', () => {
       alert('Quiz ended');
       setParticipants([]);
       setIsQuizCreated(false);
+      setIsJoined(false);
+      setQuestion('');
+      setOptions([]);
+      setSelectedOption(null);
+      setIsSubmitted(false);
     });
 
     // Lắng nghe sự kiện error từ server
@@ -39,6 +55,7 @@ function App() {
     return () => {
       // Hủy lắng nghe khi component unmount
       socket.off('new_participant');
+      socket.off('new_question');
       socket.off('quiz_ended');
       socket.off('error');
     };
@@ -46,9 +63,12 @@ function App() {
 
   // Hàm tạo phòng quiz mới
   const createQuiz = () => {
-    socket.emit('create_quiz', quizId, (response: { success: boolean; message: string }) => {
+    socket.emit('create_quiz', quizId, (response: { success: boolean; message: string; question: string; options: string[] }) => {
       if (response.success) {
         setIsQuizCreated(true);
+        setIsJoined(true);
+        setQuestion(response.question);
+        setOptions(response.options);
       }
       alert(response.message);
     });
@@ -56,9 +76,11 @@ function App() {
 
   // Hàm tham gia phòng quiz
   const joinQuiz = () => {
-    socket.emit('join_quiz', quizId, userName, (response: { success: boolean; message: string }) => {
+    socket.emit('join_quiz', quizId, userName, (response: { success: boolean; message: string; question: string; options: string[] }) => {
       if (response.success) {
-        setIsQuizCreated(true);
+        setIsJoined(true);
+        setQuestion(response.question);
+        setOptions(response.options);
       }
       alert(response.message);
     });
@@ -69,9 +91,21 @@ function App() {
     socket.emit('end_quiz', quizId, (response: { success: boolean; message: string }) => {
       if (response.success) {
         setIsQuizCreated(false);
+        setIsJoined(false);
+        setQuestion('');
+        setOptions([]);
+        setSelectedOption(null);
+        setIsSubmitted(false);
       }
       alert(response.message);
     });
+  };
+
+  // Hàm submit câu trả lời
+  const submitAnswer = () => {
+    if (selectedOption) {
+      setIsSubmitted(true);
+    }
   };
 
   return (
@@ -94,7 +128,7 @@ function App() {
             className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-        {isQuizCreated ? (
+        {!isJoined ? (
           <div className="flex justify-between">
             <button
               onClick={joinQuiz}
@@ -103,19 +137,49 @@ function App() {
               Join Quiz
             </button>
             <button
-              onClick={endQuiz}
-              className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg"
+              onClick={createQuiz}
+              className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg"
             >
-              End Quiz
+              Create Quiz
             </button>
           </div>
         ) : (
-          <button
-            onClick={createQuiz}
-            className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg"
-          >
-            Create Quiz
-          </button>
+          <div>
+            {!isSubmitted ? (
+              <div>
+                <div className="mt-6">
+                  <h2 className="text-xl font-bold mb-2">Question</h2>
+                  <p className="text-lg">{question}</p>
+                  <ul className="mt-4">
+                    {options.map((option, index) => (
+                      <li key={index} className="mt-2">
+                        <button
+                          onClick={() => setSelectedOption(option)}
+                          className={`w-full ${selectedOption === option ? 'bg-blue-300' : 'bg-gray-200'} hover:bg-gray-300 text-black font-bold py-2 px-4 rounded-lg`}
+                        >
+                          {option}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <button
+                  onClick={submitAnswer}
+                  className="w-full mt-4 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg"
+                  disabled={!selectedOption}
+                >
+                  Submit Answer
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={endQuiz}
+                className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg"
+              >
+                End Quiz
+              </button>
+            )}
+          </div>
         )}
         <h2 className="text-xl font-bold mt-6">Participants</h2>
         <ul className="list-disc list-inside">
