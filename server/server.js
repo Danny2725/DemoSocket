@@ -2,21 +2,19 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const mongoose = require('mongoose');
-const cors = require('cors'); // Thêm Cors vào
+const cors = require('cors');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:5173", // Thay bằng địa chỉ của client nếu cần
+    origin: "http://localhost:5173",
     methods: ["GET", "POST"]
   }
 });
 
-// Sử dụng Cors
 app.use(cors());
 
-// Kết nối tới MongoDB
 mongoose.connect('mongodb+srv://tranquanttdtusec:MZNQQfGS4XP2pa7I@cluster0.reux0as.mongodb.net/twitter-db?retryWrites=true&w=majority&appName=Cluster0');
 const db = mongoose.connection;
 db.on('error', console.error.bind(console, 'connection error:'));
@@ -24,20 +22,18 @@ db.once('open', () => {
   console.log('Connected to MongoDB');
 });
 
-// Định nghĩa Schema và Model cho phòng quiz
 const quizRoomSchema = new mongoose.Schema({
   quizId: { type: String, required: true, unique: true },
   participants: [{ id: String, name: String }],
+  creatorId: { type: String, required: true },
   question: { type: String, default: '2 + 2 = ?' },
   options: { type: [String], default: ['3', '4', '5', '6'] },
 });
 const QuizRoom = mongoose.model('QuizRoom', quizRoomSchema);
 
-// Xử lý các sự kiện Socket.IO
 io.on('connection', (socket) => {
   console.log('a user connected:', socket.id);
 
-  // Kiểm tra xem phòng quiz có tồn tại không
   socket.on('check_quiz', async (quizId, callback) => {
     try {
       const room = await QuizRoom.findOne({ quizId });
@@ -48,7 +44,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Tạo phòng quiz mới
   socket.on('create_quiz', async (quizId, callback) => {
     try {
       const room = await QuizRoom.findOne({ quizId });
@@ -56,7 +51,7 @@ io.on('connection', (socket) => {
         callback({ success: false, message: 'Quiz ID already exists' });
         return;
       }
-      const newRoom = new QuizRoom({ quizId, participants: [] });
+      const newRoom = new QuizRoom({ quizId, participants: [], creatorId: socket.id });
       await newRoom.save();
       socket.join(quizId);
       console.log(`Quiz created with ID: ${quizId}`);
@@ -68,7 +63,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Tham gia phòng quiz
   socket.on('join_quiz', async (quizId, userName, callback) => {
     try {
       const room = await QuizRoom.findOne({ quizId });
@@ -87,9 +81,40 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Kết thúc phòng quiz
+  socket.on('leave_quiz', async (quizId, callback) => {
+    try {
+      const room = await QuizRoom.findOne({ quizId });
+      if (!room) {
+        callback({ success: false, message: 'Quiz ID not found' });
+        return;
+      }
+      room.participants = room.participants.filter(p => p.id !== socket.id);
+      await room.save();
+      socket.leave(quizId);
+      io.to(quizId).emit('new_participant', room.participants);
+
+      if (room.participants.length === 0) {
+        io.to(quizId).emit('quiz_ended');
+      }
+      
+      callback({ success: true, message: 'Left quiz room successfully' });
+    } catch (err) {
+      console.error(err);
+      callback({ success: false, message: 'Failed to leave quiz room' });
+    }
+  });
+
   socket.on('end_quiz', async (quizId, callback) => {
     try {
+      const room = await QuizRoom.findOne({ quizId });
+      if (!room) {
+        callback({ success: false, message: 'Quiz ID not found' });
+        return;
+      }
+      if (room.creatorId !== socket.id) {
+        callback({ success: false, message: 'Only the creator can end the quiz' });
+        return;
+      }
       console.log(`Quiz ended with ID: ${quizId}`);
       io.to(quizId).emit('quiz_ended');
       callback({ success: true, message: 'Quiz room ended successfully' });
@@ -99,7 +124,12 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Xử lý sự kiện ngắt kết nối
+  // Thêm sự kiện submit_answer
+  socket.on('submit_answer', (quizId, userName, answer) => {
+    console.log(`Received answer from ${userName}: ${answer}`);
+    io.to(quizId).emit('answer_submitted', { userName, answer });
+  });
+
   socket.on('disconnect', async () => {
     console.log('user disconnected:', socket.id);
     try {
@@ -108,6 +138,9 @@ io.on('connection', (socket) => {
         room.participants = room.participants.filter(p => p.id !== socket.id);
         await room.save();
         io.to(room.quizId).emit('new_participant', room.participants);
+        if (room.participants.length === 0) {
+          io.to(room.quizId).emit('quiz_ended');
+        }
       }
     } catch (err) {
       console.error(err);

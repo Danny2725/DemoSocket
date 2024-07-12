@@ -16,26 +16,30 @@ function App() {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [isQuizCreated, setIsQuizCreated] = useState(false);
   const [isJoined, setIsJoined] = useState(false);
+  const [isCreator, setIsCreator] = useState(false);
   const [question, setQuestion] = useState('');
   const [options, setOptions] = useState<string[]>([]);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
 
   useEffect(() => {
-    // Lắng nghe sự kiện new_participant từ server
+    // Kết nối thành công
+    socket.on('connect', () => {
+      console.log('Connected to server');
+    });
+
+    // Các sự kiện khác
     socket.on('new_participant', (participants: Participant[]) => {
       setParticipants(participants);
     });
 
-    // Lắng nghe sự kiện new_question từ server
     socket.on('new_question', ({ question, options }) => {
       setQuestion(question);
       setOptions(options);
-      setIsSubmitted(false); // Reset trạng thái khi có câu hỏi mới
-      setSelectedOption(null); // Reset lựa chọn khi có câu hỏi mới
+      setIsSubmitted(false);
+      setSelectedOption(null);
     });
 
-    // Lắng nghe sự kiện quiz_ended từ server
     socket.on('quiz_ended', () => {
       alert('Quiz ended');
       setParticipants([]);
@@ -45,28 +49,34 @@ function App() {
       setOptions([]);
       setSelectedOption(null);
       setIsSubmitted(false);
+      setIsCreator(false);
     });
 
-    // Lắng nghe sự kiện error từ server
     socket.on('error', (message: string) => {
       alert(message);
     });
 
+    socket.on('answer_submitted', ({ userName }) => {
+      console.log(`Received answer_submitted event: ${userName} đã trả lời câu hỏi`);
+      alert(`${userName} đã trả lời câu hỏi`);
+    });
+
     return () => {
-      // Hủy lắng nghe khi component unmount
+      socket.off('connect');
       socket.off('new_participant');
       socket.off('new_question');
       socket.off('quiz_ended');
       socket.off('error');
+      socket.off('answer_submitted');
     };
   }, []);
 
-  // Hàm tạo phòng quiz mới
   const createQuiz = () => {
     socket.emit('create_quiz', quizId, (response: { success: boolean; message: string; question: string; options: string[] }) => {
       if (response.success) {
         setIsQuizCreated(true);
         setIsJoined(true);
+        setIsCreator(true);
         setQuestion(response.question);
         setOptions(response.options);
       }
@@ -74,7 +84,6 @@ function App() {
     });
   };
 
-  // Hàm tham gia phòng quiz
   const joinQuiz = () => {
     socket.emit('join_quiz', quizId, userName, (response: { success: boolean; message: string; question: string; options: string[] }) => {
       if (response.success) {
@@ -86,7 +95,21 @@ function App() {
     });
   };
 
-  // Hàm kết thúc phòng quiz
+  const leaveQuiz = () => {
+    socket.emit('leave_quiz', quizId, (response: { success: boolean; message: string }) => {
+      if (response.success) {
+        setIsJoined(false);
+        setQuestion('');
+        setOptions([]);
+        setSelectedOption(null);
+        setIsSubmitted(false);
+        setIsCreator(false);
+        setParticipants([]);
+      }
+      alert(response.message);
+    });
+  };
+
   const endQuiz = () => {
     socket.emit('end_quiz', quizId, (response: { success: boolean; message: string }) => {
       if (response.success) {
@@ -96,14 +119,16 @@ function App() {
         setOptions([]);
         setSelectedOption(null);
         setIsSubmitted(false);
+        setIsCreator(false);
       }
       alert(response.message);
     });
   };
 
-  // Hàm submit câu trả lời
   const submitAnswer = () => {
     if (selectedOption) {
+      console.log(`Sending answer: ${selectedOption}`);
+      socket.emit('submit_answer', quizId, userName, selectedOption);
       setIsSubmitted(true);
     }
   };
@@ -172,13 +197,21 @@ function App() {
                 </button>
               </div>
             ) : (
-              <button
-                onClick={endQuiz}
-                className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg"
-              >
-                End Quiz
-              </button>
+              isCreator && (
+                <button
+                  onClick={endQuiz}
+                  className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg"
+                >
+                  End Quiz
+                </button>
+              )
             )}
+            <button
+              onClick={leaveQuiz}
+              className="w-full mt-4 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg"
+            >
+              Leave Quiz
+            </button>
           </div>
         )}
         <h2 className="text-xl font-bold mt-6">Participants</h2>
