@@ -15,6 +15,7 @@ const io = new Server(server, {
 
 app.use(cors());
 
+// Update your MongoDB URI below
 mongoose.connect('mongodb+srv://tranquanttdtusec:MZNQQfGS4XP2pa7I@cluster0.reux0as.mongodb.net/twitter-db?retryWrites=true&w=majority&appName=Cluster0');
 const db = mongoose.connection;
 db.on('error', console.error.bind(console, 'connection error:'));
@@ -23,7 +24,7 @@ db.once('open', () => {
 });
 
 const quizRoomSchema = new mongoose.Schema({
-  quizId: { type: String, required: true, unique: true },
+  quizCode: { type: String, required: true, unique: true },
   participants: [{ id: String, name: String }],
   creatorId: { type: String, required: true },
   question: { type: String, default: '2 + 2 = ?' },
@@ -34,46 +35,38 @@ const QuizRoom = mongoose.model('QuizRoom', quizRoomSchema);
 io.on('connection', (socket) => {
   console.log('a user connected:', socket.id);
 
-  socket.on('check_quiz', async (quizId, callback) => {
+  socket.on('create_quiz', async (callback) => {
     try {
-      const room = await QuizRoom.findOne({ quizId });
-      callback({ exists: !!room });
-    } catch (err) {
-      console.error(err);
-      callback({ exists: false });
-    }
-  });
-
-  socket.on('create_quiz', async (quizId, callback) => {
-    try {
-      const room = await QuizRoom.findOne({ quizId });
-      if (room) {
-        callback({ success: false, message: 'Quiz ID already exists' });
-        return;
+      let quizCode;
+      let isUnique = false;
+      while (!isUnique) {
+        quizCode = Math.floor(1000 + Math.random() * 9000).toString(); // Generate a 4-digit code
+        const existingRoom = await QuizRoom.findOne({ quizCode });
+        if (!existingRoom) isUnique = true;
       }
-      const newRoom = new QuizRoom({ quizId, participants: [], creatorId: socket.id });
+      const newRoom = new QuizRoom({ quizCode, participants: [], creatorId: socket.id });
       await newRoom.save();
-      socket.join(quizId);
-      console.log(`Quiz created with ID: ${quizId}`);
-      callback({ success: true, message: 'Quiz room created successfully', question: newRoom.question, options: newRoom.options });
-      io.to(quizId).emit('new_question', { question: newRoom.question, options: newRoom.options });
+      socket.join(quizCode);
+      console.log(`Quiz created with code: ${quizCode}`);
+      callback({ success: true, message: 'Quiz room created successfully', quizCode, question: newRoom.question, options: newRoom.options });
+      io.to(quizCode).emit('new_question', { question: newRoom.question, options: newRoom.options });
     } catch (err) {
       console.error(err);
       callback({ success: false, message: 'Failed to create quiz room' });
     }
   });
 
-  socket.on('join_quiz', async (quizId, userName, callback) => {
+  socket.on('join_quiz', async (quizCode, userName, callback) => {
     try {
-      const room = await QuizRoom.findOne({ quizId });
+      const room = await QuizRoom.findOne({ quizCode });
       if (!room) {
-        callback({ success: false, message: 'Quiz ID not found' });
+        callback({ success: false, message: 'Quiz code not found' });
         return;
       }
-      socket.join(quizId);
+      socket.join(quizCode);
       room.participants.push({ id: socket.id, name: userName });
       await room.save();
-      io.to(quizId).emit('new_participant', room.participants);
+      io.to(quizCode).emit('new_participant', room.participants);
       callback({ success: true, message: 'Joined quiz room successfully', question: room.question, options: room.options });
     } catch (err) {
       console.error(err);
@@ -81,20 +74,20 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('leave_quiz', async (quizId, callback) => {
+  socket.on('leave_quiz', async (quizCode, callback) => {
     try {
-      const room = await QuizRoom.findOne({ quizId });
+      const room = await QuizRoom.findOne({ quizCode });
       if (!room) {
-        callback({ success: false, message: 'Quiz ID not found' });
+        callback({ success: false, message: 'Quiz code not found' });
         return;
       }
       room.participants = room.participants.filter(p => p.id !== socket.id);
       await room.save();
-      socket.leave(quizId);
-      io.to(quizId).emit('new_participant', room.participants);
+      socket.leave(quizCode);
+      io.to(quizCode).emit('new_participant', room.participants);
 
       if (room.participants.length === 0) {
-        io.to(quizId).emit('quiz_ended');
+        io.to(quizCode).emit('quiz_ended');
       }
       
       callback({ success: true, message: 'Left quiz room successfully' });
@@ -104,19 +97,20 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('end_quiz', async (quizId, callback) => {
+  socket.on('end_quiz', async (quizCode, callback) => {
     try {
-      const room = await QuizRoom.findOne({ quizId });
+      const room = await QuizRoom.findOne({ quizCode });
       if (!room) {
-        callback({ success: false, message: 'Quiz ID not found' });
+        callback({ success: false, message: 'Quiz code not found' });
         return;
       }
       if (room.creatorId !== socket.id) {
         callback({ success: false, message: 'Only the creator can end the quiz' });
         return;
       }
-      console.log(`Quiz ended with ID: ${quizId}`);
-      io.to(quizId).emit('quiz_ended');
+      await QuizRoom.deleteOne({ quizCode }); // Optionally delete the quiz room from the database
+      console.log(`Quiz ended with code: ${quizCode}`);
+      io.to(quizCode).emit('quiz_ended');
       callback({ success: true, message: 'Quiz room ended successfully' });
     } catch (err) {
       console.error(err);
@@ -124,10 +118,9 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Thêm sự kiện submit_answer
-  socket.on('submit_answer', (quizId, userName, answer) => {
+  socket.on('submit_answer', (quizCode, userName, answer) => {
     console.log(`Received answer from ${userName}: ${answer}`);
-    io.to(quizId).emit('answer_submitted', { userName, answer });
+    io.to(quizCode).emit('answer_submitted', { userName, answer });
   });
 
   socket.on('disconnect', async () => {
@@ -137,9 +130,9 @@ io.on('connection', (socket) => {
       if (room) {
         room.participants = room.participants.filter(p => p.id !== socket.id);
         await room.save();
-        io.to(room.quizId).emit('new_participant', room.participants);
+        io.to(room.quizCode).emit('new_participant', room.participants);
         if (room.participants.length === 0) {
-          io.to(room.quizId).emit('quiz_ended');
+          io.to(room.quizCode).emit('quiz_ended');
         }
       }
     } catch (err) {
