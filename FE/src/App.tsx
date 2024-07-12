@@ -178,36 +178,38 @@ function App() {
         {isJoined && (
           <>
             <div>
-              {!isSubmitted ? (
-                <div>
-                  <h2 className="text-xl font-bold mb-2">Question</h2>
-                  <p className="text-lg">{question}</p>
-                  <ul>
-                    {options.map((option, index) => (
-                      <li key={index} className="mt-2">
-                        <button
-                          onClick={() => setSelectedOption(option)}
-                          className={`w-full ${selectedOption === option ? 'bg-blue-300' : 'bg-gray-200'} hover:bg-gray-300 text-black font-bold py-2 px-4 rounded-lg`}
-                        >
-                          {option}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                  <button onClick={submitAnswer} className="w-full mt-4 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg" disabled={!selectedOption}>
-                    Submit Answer
-                  </button>
-                </div>
+              {isCreator ? (
+                <button onClick={endQuiz} className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg">
+                  End Quiz
+                </button>
               ) : (
-                isCreator && (
-                  <button onClick={endQuiz} className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg">
-                    End Quiz
+                <>
+                  {!isSubmitted && (
+                    <div>
+                      <h2 className="text-xl font-bold mb-2">Question</h2>
+                      <p className="text-lg">{question}</p>
+                      <ul>
+                        {options.map((option, index) => (
+                          <li key={index} className="mt-2">
+                            <button
+                              onClick={() => setSelectedOption(option)}
+                              className={`w-full ${selectedOption === option ? 'bg-blue-300' : 'bg-gray-200'} hover:bg-gray-300 text-black font-bold py-2 px-4 rounded-lg`}
+                            >
+                              {option}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                      <button onClick={submitAnswer} className="w-full mt-4 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg" disabled={!selectedOption}>
+                        Submit Answer
+                      </button>
+                    </div>
+                  )}
+                  <button onClick={leaveQuiz} className="w-full mt-4 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg">
+                    Leave Quiz
                   </button>
-                )
+                </>
               )}
-              <button onClick={leaveQuiz} className="w-full mt-4 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg">
-                Leave Quiz
-              </button>
             </div>
           </>
         )}
